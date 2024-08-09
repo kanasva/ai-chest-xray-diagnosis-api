@@ -1,0 +1,5 @@
+matplotlib~=3.9.0
+torch~=2.1.1
+torchxrayvision~=1.2.1
+scikit-image~=0.22.0
+numpy~=1.26.2

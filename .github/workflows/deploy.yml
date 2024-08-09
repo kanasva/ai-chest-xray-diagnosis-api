@@ -1,0 +1,106 @@
+# Secrets used in this Workflow
+# ---------------------------------------------------------
+# AWS_ACCOUNT_ID: The AWS Account ID where resources are managed.
+# AWS_ACCESS_KEY_ID: The AWS Access Key ID for authentication.
+# AWS_SECRET_ACCESS_KEY: The AWS Secret Access Key for authentication.
+# AWS_REGION: The default AWS region where resources are deployed. Cannot use as variable as some actions here need it to be secret.
+# TF_API_TOKEN: The Terraform Cloud API token for Terraform operations.
+# ---------------------------------------------------------
+
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ECR_REPOSITORY: "chest-xray-prediction"
+  IMAGE_TAG: "0.1"
+  ECR_REPO_EXISTS:
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    outputs:
+      IMAGE_TAG_WITH_TIMESTAMP: ${{ steps.build-tag-push.outputs.IMAGE_TAG_WITH_TIMESTAMP }}
+    # needs: test
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Check if ECR repository exists
+        id: check-ecr
+        run: |
+          if ! aws ecr describe-repositories --repository-names $ECR_REPOSITORY; then
+            echo "ECR_REPO_EXISTS=false" >> $GITHUB_ENV
+          else
+            echo "ECR_REPO_EXISTS=true" >> $GITHUB_ENV
+          fi
+
+      - name: Setup Terraform if ECR repo does not exist
+        if: env.ECR_REPO_EXISTS == 'false'
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Create ECR repository if it does not exist
+        if: env.ECR_REPO_EXISTS == 'false'
+        run: |
+          terraform init
+          terraform apply -auto-approve -target=aws_ecr_repository.ecr -target=aws_ecr_lifecycle_policy.ecr_lifecycle
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build, tag, and push Docker image to Amazon ECR
+        id: build-tag-push
+        run: |
+          TIMESTAMP=$(date -u +"%Y%m%dT%H%M%SZ")
+          IMAGE_TAG_WITH_TIMESTAMP="${IMAGE_TAG}-${TIMESTAMP}"
+          docker buildx build --platform linux/arm64 --provenance=false --tag ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG_WITH_TIMESTAMP --push .
+          echo "IMAGE_TAG_WITH_TIMESTAMP=$IMAGE_TAG_WITH_TIMESTAMP" >> $GITHUB_OUTPUT
+
+  terraform-deploy:
+    name: Deploy Infrastructure with Terraform
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: |
+          terraform apply -auto-approve -var="image_uri=${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:${{ needs.build-and-push.outputs.IMAGE_TAG_WITH_TIMESTAMP }}"
+        working-directory: ./
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
