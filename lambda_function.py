@@ -94,7 +94,7 @@ def handler(event, context):
         output_dict_serializable = {k: v.item() for k, v in output_dict.items()}
 
         """
-        Grad Cam
+        Grad-Cam
         """
         grad_cam_threshold = event.get("gradCamThreshold", 0.44)
         relevant_pathologies = {
