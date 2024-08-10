@@ -110,8 +110,3 @@ output "function_name" {
   description = "Name of the Lambda function."
   value       = aws_lambda_function.lambda_function.function_name
 }
-
-# output "call_url" {
-#   description = "Base URL for API Gateway stage."
-#   value       = "${aws_apigatewayv2_stage.api_gateway_stage.invoke_url}/${local.project_name}"
-# }
