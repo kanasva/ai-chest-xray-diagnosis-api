@@ -49,8 +49,8 @@ def handler(event, context):
         """
         Auto Encoder
         """
-        reconstruction_threshold = event["reconstructionThreshold"]
-        ssim_threshold = event["ssimThreshold"]
+        reconstruction_threshold = event.get("reconstructionThreshold", 8000)
+        ssim_threshold = event.get("ssimThreshold", 0.62)
 
         # Load the autoencoder
         ae = xrv.autoencoders.ResNetAE(weights="101-elastic")
@@ -65,14 +65,6 @@ def handler(event, context):
         # Calculate SSIM
         ssim_index = ssim(
             img.numpy()[0][0], img_r[0][0], data_range=img_r.max() - img_r.min()
-        )
-
-        # Define thresholds for reconstruction error and SSIM
-        reconstruction_threshold = (
-            8000  # This is an example, you need to determine a suitable threshold
-        )
-        ssim_threshold = (
-            0.62  # This is an example, you need to determine a suitable threshold
         )
 
         in_distribution = (
@@ -104,8 +96,7 @@ def handler(event, context):
         """
         Grad Cam
         """
-        # Check for pathologies with values greater than 0.4
-        grad_cam_threshold = event["gradCamThreshold"]
+        grad_cam_threshold = event.get("gradCamThreshold", 0.44)
         relevant_pathologies = {
             key: value
             for key, value in output_dict_serializable.items()
